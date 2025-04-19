@@ -10,75 +10,17 @@
 #include "esp_netif.h"
 #include "esp_err.h"
 #include <errno.h>
-#include "esp_tls.h"
-#include "mbedtls/base64.h"
 
 namespace esphome {
 namespace ftp_server {
 
 static const char *TAG = "ftp_server";
 
-// Certificat et clé privée pour TLS
-// Ces certificats sont auto-signés et devraient être remplacés pour une utilisation en production
-static const char* server_cert = 
-"-----BEGIN CERTIFICATE-----\n"
-"MIIDXTCCAkWgAwIBAgIJAJlc6SmPT8wKMA0GCSqGSIb3DQEBCwUAMEUxCzAJBgNV\n"
-"BAYTAkFVMRMwEQYDVQQIDApTb21lLVN0YXRlMSEwHwYDVQQKDBhJbnRlcm5ldCBX\n"
-"aWRnaXRzIFB0eSBMdGQwHhcNMjMxMjAxMDAwMDAwWhcNMjQxMjMxMDAwMDAwWjBF\n"
-"MQswCQYDVQQGEwJBVTETMBEGA1UECAwKU29tZS1TdGF0ZTEhMB8GA1UECgwYSW50\n"
-"ZXJuZXQgV2lkZ2l0cyBQdHkgTHRkMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB\n"
-"CgKCAQEAzcScDp6/yD6fSKpQodmQvkjMV7zcGA4NvFFSX9cZa56TR+EYs+Rt2Wk9\n"
-"bWjjpOXAzXyuXLNUP7xSjZeXnT8B5OlcjHxP1eQPH1TNFNkGFAdK3K2c8JQl7zMq\n"
-"wZKB2hVDWEYf/rE9gFO2hq0HhZ6IjCZ5my1BQeFzWrZYgoroHaOFN6OJqfhQ+paJ\n"
-"M/l8tOKHp4yBwTCflw4ke1g0XyStidGtglbGT5FJ+zuCPD8ly7Fn6D0Zu5m7LRhQ\n"
-"BtWj+26KRyG8GT+NnuCYER9O+uRH5fYWQvApe8ZSgbP7jZYJQHXqQ9xRfnuHUH5E\n"
-"QZhFnoh4CtxRFG8WEEMVXHswcQIDAQABo1AwTjAdBgNVHQ4EFgQUz5oKlvpOQSzs\n"
-"KH4/gQMjRxCBnXQwHwYDVR0jBBgwFoAUz5oKlvpOQSzs\n"
-"KH4/gQMjRxCBnXQwDAYDVR0TBAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEAFmYA\n"
-"bP8Bj5QcIYj6iQfHFH4Z+mKxTn9+Y7Jc+a7u9xLB9p4T8CeEKgAzgwdkKZ/V2Ot9\n"
-"CipJQfMOJ3m4pTCpT4MLRcJLrfC1/cKHRGCF4PjL6hAmJGdnYLvc3KFxjCFFCpBh\n"
-"wWcmM48O3+Dt9+W+jLh3S3E0fmCIPYCdzPJGoZUXTnxfp8AgdSPDxbEMqSjJ+WBE\n"
-"TA6VwrD4xIXa6I2K1A4Jv6UaKjIpKgvg3qZkGYSvHqMZwELCWz+WQZRMHRGHKzOU\n"
-"GQPXUYXa91bJ2pGvfbWRwGTWWZLiKwmZQDZDpFOZfI+q3xfS5K9RL6oKKj6tFEfg\n"
-"xK0khdLO2JzTWRZ3jQ==\n"
-"-----END CERTIFICATE-----\n";
-
-static const char* server_key = 
-"-----BEGIN PRIVATE KEY-----\n"
-"MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDNxJwOnr/IPp9I\n"
-"qlCh2ZC+SMxXvNwYDg28UVJf1xlrnpNH4Riz5G3ZaT1taOOk5cDNfK5cs1Q/vFKN\n"
-"l5edPwHk6VyMfE/V5A8fVM0U2QYUB0rcrZzwlCXvMyrBkoHaFUNYRh/+sT2AU7aG\n"
-"rQeFnoiMJnmbLUFB4XNatliCiugdo4U3o4mp+FD6lokz+Xy04oenjIHBMJ+XDiR7\n"
-"WDRfJK2J0a2CVsZPkUn7O4I8PyXLsWfoPRm7mbstGFAG1aP7bopHIbwZP42e4JgR\n"
-"H0765Efl9hZC8Cl7xlKBs/uNlglAdeqD3FF+e4dQfkRBmEWeiHgK3FEUbxYQQxVc\n"
-"ezBxAgMBAAECggEADVwgHs94p1hWM16GUj9gxX9BC2I/mN/JlXoS4TthDNUJDiFn\n"
-"2b9p5V2l8wPg5U9qEpwZCFzQGiU67pZZEVxz5AQVzA3JXBxgUEE9MEJlIGcbF5OB\n"
-"VOZkJYdKMZRFp8D+MEQUHKhBvHJxlxGaKTNDlp1j0R6FXfV48IfXHjGCMp/GEBSA\n"
-"E5L4UN3h0wP4+2BHAsLWZp3dOlWBbN8YXK9O+oBJqE0YlFrHX8ibtvVJ7R2ID3cj\n"
-"A55Lqi4j2mdOHzQBNzXDWg8I26vwdlLl5m0R2hJ4GkRPBgkeXlowMP/s5ItBQEzq\n"
-"RdEgx3NZJYiyZ8RiDGHiZTqc03SDk5uOmzeOnZngAQKBgQDzc3KKvdkE3z3uCBH/\n"
-"+jJLJa7XEGIvttmx8btdcIcbLU3QmJ8hXsJK7nU3cWXX97yELbvWKyEoP7JbWCGi\n"
-"zVmEpbBvkfILCZCaGdYq3DrVQ2F8VuUGVlTdWS5SMaKHXHQY+EGFXnZG34znT0er\n"
-"MwZuhuRR4NWDtZcHrGgc6LfEwQKBgQDYRH15C2rkgWG5V1tZQBwuJ0rqdTtEkEvr\n"
-"WrYvJM9dhpZT5zRYzKnkn8D3G3/oB9vX9tY+prmKz/3/vCPvY6Od4DiX/jJYK5Qz\n"
-"8FjOcHAp4u0GKpS8c+993MH7Sqj2xOUjMzJmQBX1ZJLjYbZ3d/SYKiO6d+emdv+Y\n"
-"S3h0Y9HaMQKBgQDFIgApXX0oivIYUQcOYjKPMKl+wRR6gR4LbZIA+KaUTKc4IkpR\n"
-"j85GdCyVWh/Y8RkrNRzNAQtRxZcBayZJ6QkL5BKncgizFd2gpK0N+3JBUYT7GrA7\n"
-"3KAGhUDlcXZ0vVNHMCF6SwO0dE7YIJhL5JX4bks/vdV3gRlG2unscrH6QQKBgQDB\n"
-"FLyH3SMC76ByR4zGWK27e3vwDL7a0LKnMKXULwTJzqrT1tpH3hGQQPc0QwURtTJP\n"
-"ov9Wm7uN8RGYFnhkesuU2nyc/iT83VJbB54rD7ks9EZE1vlwSV9PNZ80WBgOi0v9\n"
-"qFM4cl4NpFrQvLRXbe5E5lK5JuXVP7b34DvoFYePYQKBgF9RFxGQkwyaT+RKHMm4\n"
-"HS4ZYCic0bFl1P1+EHaHzCKP7pxZjDOGaCIOg1W7U4pA2CQXzdhLywlxhNBYhP1k\n"
-"CdN+E9iNYOznvdKUT1/qWbrrPatVxJXrZJxkZJJJBwwgQRdO71KwNiFmP2R2RSFT\n"
-"QOx1pZmQ5LXmKXwZKUQJbHVG\n"
-"-----END PRIVATE KEY-----\n";
-
 FTPServer::FTPServer() : 
   ftp_server_socket_(-1),
   passive_data_socket_(-1),
   passive_data_port_(-1),
   passive_mode_enabled_(false),
-  tls_enabled_(false),
   rename_from_("") {}
 
 std::string normalize_path(const std::string& base_path, const std::string& path) {
@@ -113,28 +55,6 @@ std::string normalize_path(const std::string& base_path, const std::string& path
 
 void FTPServer::setup() {
   ESP_LOGI(TAG, "Setting up FTP server...");
-
-  // Initialize TLS configuration
-  tls_cfg_ = {
-      .alpn_protos = NULL,
-      .cacert_buf = NULL,
-      .cacert_bytes = 0,
-      .cert_buf = (const unsigned char*)server_cert,
-      .cert_bytes = strlen(server_cert) + 1,
-      .clientcert_buf = NULL,
-      .clientcert_bytes = 0,
-      .clientkey_buf = NULL,
-      .clientkey_bytes = 0,
-      .common_name = NULL,
-      .keep_alive_cfg = NULL,
-      .non_block = false,
-      .psk_hint_key = NULL,
-      .skip_common_name = false,
-      .timeout_ms = 10000,
-      .use_global_ca_store = false,
-      .userkey_buf = (const unsigned char*)server_key,
-      .userkey_bytes = strlen(server_key) + 1,
-  };
 
   if (root_path_.empty()) {
     root_path_ = "/";
@@ -201,14 +121,18 @@ void FTPServer::setup() {
 
   ESP_LOGI(TAG, "FTP server started on port %d", port_);
   ESP_LOGI(TAG, "Root directory: %s", root_path_.c_str());
-  ESP_LOGI(TAG, "TLS support: %s", enable_tls_ ? "enabled" : "disabled");
+  ESP_LOGI(TAG, "External access: %s", external_ip_.empty() ? "Not configured" : external_ip_.c_str());
+  if (passive_port_min_ > 0 && passive_port_max_ > 0) {
+    ESP_LOGI(TAG, "Passive port range: %d-%d", passive_port_min_, passive_port_max_);
+  }
+  
   current_path_ = root_path_;
 }
 
 void FTPServer::loop() {
   handle_new_clients();
   for (size_t i = 0; i < client_sockets_.size(); i++) {
-    handle_ftp_client(client_sockets_[i], i);
+    handle_ftp_client(client_sockets_[i]);
   }
 }
 
@@ -217,8 +141,11 @@ void FTPServer::dump_config() {
   ESP_LOGI(TAG, "  Port: %d", port_);
   ESP_LOGI(TAG, "  Root Path: %s", root_path_.c_str());
   ESP_LOGI(TAG, "  Username: %s", username_.c_str());
-  ESP_LOGI(TAG, "  TLS: %s", enable_tls_ ? "enabled" : "disabled");
   ESP_LOGI(TAG, "  Server status: %s", is_running() ? "Running" : "Not running");
+  ESP_LOGI(TAG, "  External IP: %s", external_ip_.empty() ? "Not configured" : external_ip_.c_str());
+  if (passive_port_min_ > 0 && passive_port_max_ > 0) {
+    ESP_LOGI(TAG, "  Passive port range: %d-%d", passive_port_min_, passive_port_max_);
+  }
 }
 
 void FTPServer::handle_new_clients() {
@@ -230,69 +157,43 @@ void FTPServer::handle_new_clients() {
     char client_ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &(client_addr.sin_addr), client_ip, INET_ADDRSTRLEN);
     ESP_LOGI(TAG, "New FTP client connected from %s:%d", client_ip, ntohs(client_addr.sin_port));
-    
-    // Add the client to our lists
     client_sockets_.push_back(client_socket);
     client_states_.push_back(FTP_WAIT_LOGIN);
     client_usernames_.push_back("");
     client_current_paths_.push_back(root_path_);
-    client_tls_contexts_.push_back(nullptr);
-    client_secure_data_.push_back(false);
     
-    send_response(client_socket, client_sockets_.size() - 1, 220, "Welcome to ESPHome FTP Server. Use AUTH TLS for secure connection.");
+    if (enable_tls_) {
+      send_response(client_socket, 220, "Welcome to ESPHome FTP Server. Use AUTH TLS for secure connection.");
+    } else {
+      send_response(client_socket, 220, "Welcome to ESPHome FTP Server");
+    }
   }
 }
 
-void FTPServer::handle_ftp_client(int client_socket, size_t client_index) {
+void FTPServer::handle_ftp_client(int client_socket) {
   char buffer[512];
-  bool is_tls = client_tls_contexts_[client_index] != nullptr;
-  
-  int len;
-  if (is_tls) {
-    len = esp_tls_conn_read(client_tls_contexts_[client_index], buffer, sizeof(buffer) - 1);
-    if (len < 0 && len != MBEDTLS_ERR_SSL_WANT_READ) {
-      ESP_LOGE(TAG, "TLS read error: %d", len);
-      close_client_connection(client_index);
-      return;
-    }
-  } else {
-    len = recv(client_socket, buffer, sizeof(buffer) - 1, MSG_DONTWAIT);
-  }
-  
+  int len = recv(client_socket, buffer, sizeof(buffer) - 1, MSG_DONTWAIT);
   if (len > 0) {
     buffer[len] = '\0';
     std::string command(buffer);
-    process_command(client_socket, client_index, command);
-  } else if (len == 0 || (len < 0 && errno != EWOULDBLOCK && errno != EAGAIN)) {
+    process_command(client_socket, command);
+  } else if (len == 0) {
     ESP_LOGI(TAG, "FTP client disconnected");
-    close_client_connection(client_index);
+    close(client_socket);
+    auto it = std::find(client_sockets_.begin(), client_sockets_.end(), client_socket);
+    if (it != client_sockets_.end()) {
+      size_t index = it - client_sockets_.begin();
+      client_sockets_.erase(it);
+      client_states_.erase(client_states_.begin() + index);
+      client_usernames_.erase(client_usernames_.begin() + index);
+      client_current_paths_.erase(client_current_paths_.begin() + index);
+    }
+  } else if (errno != EWOULDBLOCK && errno != EAGAIN) {
+    ESP_LOGW(TAG, "Socket error: %d", errno);
   }
 }
 
-void FTPServer::close_client_connection(size_t client_index) {
-  if (client_index >= client_sockets_.size()) {
-    return;
-  }
-  
-  int client_socket = client_sockets_[client_index];
-  
-  // If using TLS, clean up TLS context
-  if (client_tls_contexts_[client_index] != nullptr) {
-    esp_tls_conn_destroy(client_tls_contexts_[client_index]);
-  }
-  
-  close(client_socket);
-  
-  // Remove this client from our tracking lists
-  client_sockets_.erase(client_sockets_.begin() + client_index);
-  client_states_.erase(client_states_.begin() + client_index);
-  client_usernames_.erase(client_usernames_.begin() + client_index);
-  client_current_paths_.erase(client_current_paths_.begin() + client_index);
-  client_tls_contexts_.erase(client_tls_contexts_.begin() + client_index);
-  client_secure_data_.erase(client_secure_data_.begin() + client_index);
-}
-
-void FTPServer::process_command(int client_socket, size_t client_index, const std::string& command) {
+void FTPServer::process_command(int client_socket, const std::string& command) {
   ESP_LOGI(TAG, "FTP command: %s", command.c_str());
   std::string cmd_str = command;
   size_t pos = cmd_str.find_first_of("\r\n");
@@ -300,86 +201,78 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
     cmd_str = cmd_str.substr(0, pos);
   }
 
-  if (cmd_str.find("AUTH") == 0) {
+  auto it = std::find(client_sockets_.begin(), client_sockets_.end(), client_socket);
+  if (it == client_sockets_.end()) {
+    ESP_LOGE(TAG, "Client socket not found!");
+    return;
+  }
+
+  size_t client_index = it - client_sockets_.begin();
+
+  // Handle AUTH TLS command if TLS is enabled
+  if (cmd_str.find("AUTH") == 0 && enable_tls_) {
     std::string auth_type = cmd_str.substr(5);
-    if (auth_type == "TLS" && enable_tls_) {
-      send_response(client_socket, client_index, 234, "AUTH TLS successful");
-      
-      // Set up TLS context for this client
-      esp_tls_t* tls = esp_tls_init();
-      if (tls == nullptr) {
-        ESP_LOGE(TAG, "Failed to initialize TLS");
-        return;
-      }
-      
-      int ret = esp_tls_server_session_create(&tls_cfg_, client_socket, tls);
-      if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to create TLS session: %d", ret);
-        esp_tls_conn_destroy(tls);
-        return;
-      }
-      
-      client_tls_contexts_[client_index] = tls;
+    if (auth_type == "TLS") {
+      // For now, we will acknowledge the TLS request but not actually implement it
+      // In a real implementation, you would need to set up the TLS session here
+      send_response(client_socket, 234, "AUTH TLS command accepted (TLS not implemented yet)");
+      return;
     } else {
-      send_response(client_socket, client_index, 502, "AUTH not supported");
+      send_response(client_socket, 504, "Auth type not supported");
+      return;
     }
-  } else if (cmd_str.find("PBSZ") == 0) {
-    if (client_tls_contexts_[client_index] != nullptr) {
-      // PBSZ 0 is required for TLS
-      send_response(client_socket, client_index, 200, "PBSZ=0");
+  } else if (cmd_str.find("PBSZ") == 0 && enable_tls_) {
+    // PBSZ (Protection Buffer Size) is used for TLS 
+    send_response(client_socket, 200, "PBSZ=0");
+    return;
+  } else if (cmd_str.find("PROT") == 0 && enable_tls_) {
+    // PROT command sets data channel protection level
+    std::string prot_level = cmd_str.substr(5);
+    if (prot_level == "P") {
+      send_response(client_socket, 200, "Protection level set to Private");
     } else {
-      send_response(client_socket, client_index, 503, "TLS connection not established");
+      send_response(client_socket, 200, "Protection level set to Clear");
     }
-  } else if (cmd_str.find("PROT") == 0) {
-    if (client_tls_contexts_[client_index] != nullptr) {
-      std::string prot_level = cmd_str.substr(5);
-      if (prot_level == "P") {
-        client_secure_data_[client_index] = true;
-        send_response(client_socket, client_index, 200, "Protection set to Private");
-      } else if (prot_level == "C") {
-        client_secure_data_[client_index] = false;
-        send_response(client_socket, client_index, 200, "Protection set to Clear");
-      } else {
-        send_response(client_socket, client_index, 504, "PROT level not supported");
-      }
-    } else {
-      send_response(client_socket, client_index, 503, "TLS connection not established");
+    return;
+  } else if (cmd_str.find("FEAT") == 0) {
+    send_response(client_socket, 211, "Features:");
+    send_response(client_socket, 211, " SIZE");
+    send_response(client_socket, 211, " MDTM");
+    if (enable_tls_) {
+      send_response(client_socket, 211, " AUTH TLS");
+      send_response(client_socket, 211, " PROT");
+      send_response(client_socket, 211, " PBSZ");
     }
-  } else if (cmd_str.find("USER") == 0) {
+    send_response(client_socket, 211, "End");
+    return;
+  }
+
+  // Handle regular FTP commands
+  if (cmd_str.find("USER") == 0) {
     std::string username = cmd_str.substr(5);
     client_usernames_[client_index] = username;
-    send_response(client_socket, client_index, 331, "Password required for " + username);
+    send_response(client_socket, 331, "Password required for " + username);
   } else if (cmd_str.find("PASS") == 0) {
     std::string password = cmd_str.substr(5);
     if (authenticate(client_usernames_[client_index], password)) {
       client_states_[client_index] = FTP_LOGGED_IN;
-      send_response(client_socket, client_index, 230, "Login successful");
+      send_response(client_socket, 230, "Login successful");
     } else {
-      send_response(client_socket, client_index, 530, "Login incorrect");
+      send_response(client_socket, 530, "Login incorrect");
     }
   } else if (client_states_[client_index] != FTP_LOGGED_IN) {
-    send_response(client_socket, client_index, 530, "Not logged in");
+    send_response(client_socket, 530, "Not logged in");
   } else if (cmd_str.find("SYST") == 0) {
-    send_response(client_socket, client_index, 215, "UNIX Type: L8");
-  } else if (cmd_str.find("FEAT") == 0) {
-    send_response(client_socket, client_index, 211, "Features:");
-    send_response(client_socket, client_index, 211, " SIZE");
-    send_response(client_socket, client_index, 211, " MDTM");
-    if (enable_tls_) {
-      send_response(client_socket, client_index, 211, " AUTH TLS");
-      send_response(client_socket, client_index, 211, " PROT");
-      send_response(client_socket, client_index, 211, " PBSZ");
-    }
-    send_response(client_socket, client_index, 211, "End");
+    send_response(client_socket, 215, "UNIX Type: L8");
   } else if (cmd_str.find("TYPE") == 0) {
-    send_response(client_socket, client_index, 200, "Type set to " + cmd_str.substr(5));
+    send_response(client_socket, 200, "Type set to " + cmd_str.substr(5));
   } else if (cmd_str.find("PWD") == 0) {
     std::string current_path = client_current_paths_[client_index];
     std::string relative_path = "/";
     if (current_path.length() > root_path_.length()) {
       relative_path = current_path.substr(root_path_.length() - 1);
     }
-    send_response(client_socket, client_index, 257, "\"" + relative_path + "\" is current directory");
+    send_response(client_socket, 257, "\"" + relative_path + "\" is current directory");
   } else if (cmd_str.find("CWD") == 0) {
     std::string path = cmd_str.substr(4);
     size_t first_non_space = path.find_first_not_of(" \t");
@@ -388,7 +281,7 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
     }
     
     if (path.empty()) {
-      send_response(client_socket, client_index, 550, "Failed to change directory - path is empty");
+      send_response(client_socket, 550, "Failed to change directory - path is empty");
     } else {
       std::string current_path = client_current_paths_[client_index];
       std::string full_path;
@@ -405,17 +298,17 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
       if (dir != nullptr) {
         closedir(dir);
         client_current_paths_[client_index] = full_path;
-        send_response(client_socket, client_index, 250, "Directory successfully changed");
+        send_response(client_socket, 250, "Directory successfully changed");
       } else {
         ESP_LOGE(TAG, "Failed to open directory: %s (errno: %d)", full_path.c_str(), errno);
-        send_response(client_socket, client_index, 550, "Failed to change directory");
+        send_response(client_socket, 550, "Failed to change directory");
       }
     }
   } else if (cmd_str.find("CDUP") == 0) {
     std::string current = client_current_paths_[client_index];
     
     if (current == root_path_ || current.length() <= root_path_.length()) {
-      send_response(client_socket, client_index, 250, "Already at root directory");
+      send_response(client_socket, 250, "Already at root directory");
       return;
     }
     
@@ -431,22 +324,22 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
         
         if (parent_dir.length() >= root_path_.length()) {
           client_current_paths_[client_index] = parent_dir;
-          send_response(client_socket, client_index, 250, "Directory successfully changed");
+          send_response(client_socket, 250, "Directory successfully changed");
         } else {
           client_current_paths_[client_index] = root_path_;
-          send_response(client_socket, client_index, 250, "Directory changed to root");
+          send_response(client_socket, 250, "Directory changed to root");
         }
       } else {
-        send_response(client_socket, client_index, 550, "Failed to change directory");
+        send_response(client_socket, 550, "Failed to change directory");
       }
     } else {
-      send_response(client_socket, client_index, 550, "Failed to change directory");
+      send_response(client_socket, 550, "Failed to change directory");
     }
   } else if (cmd_str.find("PASV") == 0) {
-    if (start_passive_mode(client_socket, client_index)) {
+    if (start_passive_mode(client_socket)) {
       passive_mode_enabled_ = true;
     } else {
-      send_response(client_socket, client_index, 425, "Can't open passive connection");
+      send_response(client_socket, 425, "Can't open passive connection");
     }
   } else if (cmd_str.find("LIST") == 0 || cmd_str.find("NLST") == 0) {
     std::string path_arg = "";
@@ -468,12 +361,12 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
     }
     
     ESP_LOGI(TAG, "Listing directory: %s", list_path.c_str());
-    send_response(client_socket, client_index, 150, "Opening ASCII mode data connection for file list");
+    send_response(client_socket, 150, "Opening ASCII mode data connection for file list");
     
     if (cmd_type == "LIST") {
-      list_directory(client_socket, client_index, list_path);
+      list_directory(client_socket, list_path);
     } else {
-      list_names(client_socket, client_index, list_path);
+      list_names(client_socket, list_path);
     }
   } else if (cmd_str.find("STOR") == 0) {
     std::string filename = cmd_str.substr(5);
@@ -484,8 +377,8 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
     
     std::string full_path = normalize_path(client_current_paths_[client_index], filename);
     ESP_LOGI(TAG, "Starting file upload to: %s", full_path.c_str());
-    send_response(client_socket, client_index, 150, "Opening connection for file upload");
-    start_file_upload(client_socket, client_index, full_path);
+    send_response(client_socket, 150, "Opening connection for file upload");
+    start_file_upload(client_socket, full_path);
   } else if (cmd_str.find("RETR") == 0) {
     std::string filename = cmd_str.substr(5);
     size_t first_non_space = filename.find_first_not_of(" \t");
@@ -501,14 +394,14 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
       if (S_ISREG(file_stat.st_mode)) {
         std::string size_msg = "Opening connection for file download (" +
                               std::to_string(file_stat.st_size) + " bytes)";
-        send_response(client_socket, client_index, 150, size_msg);
-        start_file_download(client_socket, client_index, full_path);
+        send_response(client_socket, 150, size_msg);
+        start_file_download(client_socket, full_path);
       } else {
-        send_response(client_socket, client_index, 550, "Not a regular file");
+        send_response(client_socket, 550, "Not a regular file");
       }
     } else {
       ESP_LOGE(TAG, "File not found: %s (errno: %d)", full_path.c_str(), errno);
-      send_response(client_socket, client_index, 550, "File not found");
+      send_response(client_socket, 550, "File not found");
     }
   } else if (cmd_str.find("DELE") == 0) {
     std::string filename = cmd_str.substr(5);
@@ -521,10 +414,10 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
     ESP_LOGI(TAG, "Deleting file: %s", full_path.c_str());
     
     if (unlink(full_path.c_str()) == 0) {
-      send_response(client_socket, client_index, 250, "File deleted successfully");
+      send_response(client_socket, 250, "File deleted successfully");
     } else {
       ESP_LOGE(TAG, "Failed to delete file: %s (errno: %d)", full_path.c_str(), errno);
-      send_response(client_socket, client_index, 550, "Failed to delete file");
+      send_response(client_socket, 550, "Failed to delete file");
     }
   } else if (cmd_str.find("MKD") == 0) {
     std::string dirname = cmd_str.substr(4);
@@ -537,10 +430,10 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
     ESP_LOGI(TAG, "Creating directory: %s", full_path.c_str());
     
     if (mkdir(full_path.c_str(), 0755) == 0) {
-      send_response(client_socket, client_index, 257, "Directory created");
+      send_response(client_socket, 257, "Directory created");
     } else {
       ESP_LOGE(TAG, "Failed to create directory: %s (errno: %d)", full_path.c_str(), errno);
-      send_response(client_socket, client_index, 550, "Failed to create directory");
+      send_response(client_socket, 550, "Failed to create directory");
     }
   } else if (cmd_str.find("RMD") == 0) {
     std::string dirname = cmd_str.substr(4);
@@ -553,10 +446,10 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
     ESP_LOGI(TAG, "Removing directory: %s", full_path.c_str());
     
     if (rmdir(full_path.c_str()) == 0) {
-      send_response(client_socket, client_index, 250, "Directory removed");
+      send_response(client_socket, 250, "Directory removed");
     } else {
       ESP_LOGE(TAG, "Failed to remove directory: %s (errno: %d)", full_path.c_str(), errno);
-      send_response(client_socket, client_index, 550, "Failed to remove directory");
+      send_response(client_socket, 550, "Failed to remove directory");
     }
   } else if (cmd_str.find("RNFR") == 0) {
     std::string filename = cmd_str.substr(5);
@@ -568,15 +461,15 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
     rename_from_ = normalize_path(client_current_paths_[client_index], filename);
     struct stat file_stat;
     if (stat(rename_from_.c_str(), &file_stat) == 0) {
-      send_response(client_socket, client_index, 350, "Ready for RNTO");
+      send_response(client_socket, 350, "Ready for RNTO");
     } else {
       ESP_LOGE(TAG, "File not found for rename: %s (errno: %d)", rename_from_.c_str(), errno);
-      send_response(client_socket, client_index, 550, "File not found");
+      send_response(client_socket, 550, "File not found");
       rename_from_ = "";
     }
   } else if (cmd_str.find("RNTO") == 0) {
     if (rename_from_.empty()) {
-      send_response(client_socket, client_index, 503, "RNFR required first");
+      send_response(client_socket, 503, "RNFR required first");
     } else {
       std::string filename = cmd_str.substr(5);
       size_t first_non_space = filename.find_first_not_of(" \t");
@@ -588,11 +481,11 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
       ESP_LOGI(TAG, "Renaming from %s to %s", rename_from_.c_str(), rename_to.c_str());
       
       if (rename(rename_from_.c_str(), rename_to.c_str()) == 0) {
-        send_response(client_socket, client_index, 250, "Rename successful");
+        send_response(client_socket, 250, "Rename successful");
       } else {
         ESP_LOGE(TAG, "Failed to rename: %s -> %s (errno: %d)", 
                  rename_from_.c_str(), rename_to.c_str(), errno);
-        send_response(client_socket, client_index, 550, "Rename failed");
+        send_response(client_socket, 550, "Rename failed");
       }
       rename_from_ = "";
     }
@@ -606,9 +499,9 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
     std::string full_path = normalize_path(client_current_paths_[client_index], filename);
     struct stat file_stat;
     if (stat(full_path.c_str(), &file_stat) == 0 && S_ISREG(file_stat.st_mode)) {
-      send_response(client_socket, client_index, 213, std::to_string(file_stat.st_size));
+      send_response(client_socket, 213, std::to_string(file_stat.st_size));
     } else {
-      send_response(client_socket, client_index, 550, "File not found or not a regular file");
+      send_response(client_socket, 550, "File not found or not a regular file");
     }
   } else if (cmd_str.find("MDTM") == 0) {
     std::string filename = cmd_str.substr(5);
@@ -623,31 +516,31 @@ void FTPServer::process_command(int client_socket, size_t client_index, const st
       char mdtm_str[15];
       struct tm *tm_info = gmtime(&file_stat.st_mtime);
       strftime(mdtm_str, sizeof(mdtm_str), "%Y%m%d%H%M%S", tm_info);
-      send_response(client_socket, client_index, 213, mdtm_str);
+      send_response(client_socket, 213, mdtm_str);
     } else {
-      send_response(client_socket, client_index, 550, "File not found");
+      send_response(client_socket, 550, "File not found");
     }
   } else if (cmd_str.find("NOOP") == 0) {
-    send_response(client_socket, client_index, 200, "NOOP command successful");
+    send_response(client_socket, 200, "NOOP command successful");
   } else if (cmd_str.find("QUIT") == 0) {
-    send_response(client_socket, client_index, 221, "Goodbye");
-    close_client_connection(client_index);
+    send_response(client_socket, 221, "Goodbye");
+    close(client_socket);
+    auto it = std::find(client_sockets_.begin(), client_sockets_.end(), client_socket);
+    if (it != client_sockets_.end()) {
+      size_t index = it - client_sockets_.begin();
+      client_sockets_.erase(it);
+      client_states_.erase(client_states_.begin() + index);
+      client_usernames_.erase(client_usernames_.begin() + index);
+      client_current_paths_.erase(client_current_paths_.begin() + index);
+    }
   } else {
-    send_response(client_socket, client_index, 502, "Command not implemented");
+    send_response(client_socket, 502, "Command not implemented");
   }
 }
 
-void FTPServer::send_response(int client_socket, size_t client_index, int code, const std::string& message) {
+void FTPServer::send_response(int client_socket, int code, const std::string& message) {
   std::string response = std::to_string(code) + " " + message + "\r\n";
-  
-  if (client_tls_contexts_[client_index] != nullptr) {
-    // Send over TLS
-    esp_tls_conn_write(client_tls_contexts_[client_index], response.c_str(), response.length());
-  } else {
-    // Send over plain socket
-    send(client_socket, response.c_str(), response.length(), 0);
-  }
-  
+  send(client_socket, response.c_str(), response.length(), 0);
   ESP_LOGD(TAG, "Sent: %s", response.c_str());
 }
 
@@ -655,7 +548,7 @@ bool FTPServer::authenticate(const std::string& username, const std::string& pas
   return username == username_ && password == password_;
 }
 
-bool FTPServer::start_passive_mode(int client_socket, size_t client_index) {
+bool FTPServer::start_passive_mode(int client_socket) {
   if (passive_data_socket_ != -1) {
     close(passive_data_socket_);
     passive_data_socket_ = -1;
@@ -742,6 +635,9 @@ bool FTPServer::start_passive_mode(int client_socket, size_t client_index) {
     ip = ntohl(ip_info.ip.addr);
   }
 
+  ESP_LOGI(TAG, "Passive mode IP: %d.%d.%d.%d, Port: %d",
+           (ip >> 24) & 0xFF, (ip >> 16) & 0xFF, (ip >> 8) & 0xFF, ip & 0xFF, passive_data_port_);
+
   std::string response = "Entering Passive Mode (" +
                         std::to_string((ip >> 24) & 0xFF) + "," +
                         std::to_string((ip >> 16) & 0xFF) + "," +
@@ -750,11 +646,11 @@ bool FTPServer::start_passive_mode(int client_socket, size_t client_index) {
                         std::to_string(passive_data_port_ >> 8) + "," +
                         std::to_string(passive_data_port_ & 0xFF) + ")";
 
-  send_response(client_socket, client_index, 227, response);
+  send_response(client_socket, 227, response);
   return true;
 }
 
-int FTPServer::open_data_connection(int client_socket, size_t client_index) {
+int FTPServer::open_data_connection(int client_socket) {
   if (passive_data_socket_ == -1) {
     return -1;
   }
@@ -782,41 +678,11 @@ int FTPServer::open_data_connection(int client_socket, size_t client_index) {
 
   int flags = fcntl(data_socket, F_GETFL, 0);
   fcntl(data_socket, F_SETFL, flags & ~O_NONBLOCK);
-  
-  // If the client is using secure data transfers, wrap this data socket with TLS
-  if (client_secure_data_[client_index] && enable_tls_) {
-    ESP_LOGI(TAG, "Securing data connection with TLS");
-    
-    esp_tls_t* tls_data = esp_tls_init();
-    if (tls_data == nullptr) {
-      ESP_LOGE(TAG, "Failed to initialize TLS for data connection");
-      close(data_socket);
-      return -1;
-    }
-    
-    int ret = esp_tls_server_session_create(&tls_cfg_, data_socket, tls_data);
-    if (ret != ESP_OK) {
-      ESP_LOGE(TAG, "Failed to create TLS session for data: %d", ret);
-      esp_tls_conn_destroy(tls_data);
-      close(data_socket);
-      return -1;
-    }
-    
-    // Store the TLS context for data connection
-    data_tls_context_ = tls_data;
-    return data_socket;
-  }
 
   return data_socket;
 }
 
 void FTPServer::close_data_connection(int client_socket) {
-  // Clean up TLS context for data if it exists
-  if (data_tls_context_ != nullptr) {
-    esp_tls_conn_destroy(data_tls_context_);
-    data_tls_context_ = nullptr;
-  }
-  
   if (passive_data_socket_ != -1) {
     close(passive_data_socket_);
     passive_data_socket_ = -1;
@@ -825,10 +691,10 @@ void FTPServer::close_data_connection(int client_socket) {
   }
 }
 
-void FTPServer::list_directory(int client_socket, size_t client_index, const std::string& path) {
-  int data_socket = open_data_connection(client_socket, client_index);
+void FTPServer::list_directory(int client_socket, const std::string& path) {
+  int data_socket = open_data_connection(client_socket);
   if (data_socket < 0) {
-    send_response(client_socket, client_index, 425, "Can't open data connection");
+    send_response(client_socket, 425, "Can't open data connection");
     return;
   }
 
@@ -836,7 +702,7 @@ void FTPServer::list_directory(int client_socket, size_t client_index, const std
   if (dir == nullptr) {
     close(data_socket);
     close_data_connection(client_socket);
-    send_response(client_socket, client_index, 550, "Failed to open directory");
+    send_response(client_socket, 550, "Failed to open directory");
     return;
   }
 
@@ -875,25 +741,20 @@ void FTPServer::list_directory(int client_socket, size_t client_index, const std
                "%s 1 root root %8ld %s %s\r\n",
                perm_str, (long)entry_stat.st_size, time_str, entry_name.c_str());
       
-      // Send data through TLS if secured data connection is used
-      if (data_tls_context_ != nullptr) {
-        esp_tls_conn_write(data_tls_context_, list_item, strlen(list_item));
-      } else {
-        send(data_socket, list_item, strlen(list_item), 0);
-      }
+      send(data_socket, list_item, strlen(list_item), 0);
     }
   }
 
   closedir(dir);
   close(data_socket);
   close_data_connection(client_socket);
-  send_response(client_socket, client_index, 226, "Directory send OK");
+  send_response(client_socket, 226, "Directory send OK");
 }
 
-void FTPServer::list_names(int client_socket, size_t client_index, const std::string& path) {
-  int data_socket = open_data_connection(client_socket, client_index);
+void FTPServer::list_names(int client_socket, const std::string& path) {
+  int data_socket = open_data_connection(client_socket);
   if (data_socket < 0) {
-    send_response(client_socket, client_index, 425, "Can't open data connection");
+    send_response(client_socket, 425, "Can't open data connection");
     return;
   }
 
@@ -901,7 +762,7 @@ void FTPServer::list_names(int client_socket, size_t client_index, const std::st
   if (dir == nullptr) {
     close(data_socket);
     close_data_connection(client_socket);
-    send_response(client_socket, client_index, 550, "Failed to open directory");
+    send_response(client_socket, 550, "Failed to open directory");
     return;
   }
 
@@ -921,26 +782,20 @@ void FTPServer::list_names(int client_socket, size_t client_index, const std::st
     struct stat entry_stat;
     if (stat(full_path.c_str(), &entry_stat) == 0) {
       std::string list_item = entry_name + "\r\n";
-      
-      // Send data through TLS if secured data connection is used
-      if (data_tls_context_ != nullptr) {
-        esp_tls_conn_write(data_tls_context_, list_item.c_str(), list_item.length());
-      } else {
-        send(data_socket, list_item.c_str(), list_item.length(), 0);
-      }
+      send(data_socket, list_item.c_str(), list_item.length(), 0);
     }
   }
 
   closedir(dir);
   close(data_socket);
   close_data_connection(client_socket);
-  send_response(client_socket, client_index, 226, "Directory send OK");
+  send_response(client_socket, 226, "Directory send OK");
 }
 
-void FTPServer::start_file_upload(int client_socket, size_t client_index, const std::string& path) {
-  int data_socket = open_data_connection(client_socket, client_index);
+void FTPServer::start_file_upload(int client_socket, const std::string& path) {
+  int data_socket = open_data_connection(client_socket);
   if (data_socket < 0) {
-    send_response(client_socket, client_index, 425, "Can't open data connection");
+    send_response(client_socket, 425, "Can't open data connection");
     return;
   }
 
@@ -948,35 +803,26 @@ void FTPServer::start_file_upload(int client_socket, size_t client_index, const 
   if (file_fd < 0) {
     close(data_socket);
     close_data_connection(client_socket);
-    send_response(client_socket, client_index, 550, "Failed to open file for writing");
+    send_response(client_socket, 550, "Failed to open file for writing");
     return;
   }
 
   char buffer[2048];
   int len;
-  
-  if (data_tls_context_ != nullptr) {
-    // Read from TLS data connection
-    while ((len = esp_tls_conn_read(data_tls_context_, buffer, sizeof(buffer))) > 0) {
-      write(file_fd, buffer, len);
-    }
-  } else {
-    // Read from plain data socket
-    while ((len = recv(data_socket, buffer, sizeof(buffer), 0)) > 0) {
-      write(file_fd, buffer, len);
-    }
+  while ((len = recv(data_socket, buffer, sizeof(buffer), 0)) > 0) {
+    write(file_fd, buffer, len);
   }
 
   close(file_fd);
   close(data_socket);
   close_data_connection(client_socket);
-  send_response(client_socket, client_index, 226, "Transfer complete");
+  send_response(client_socket, 226, "Transfer complete");
 }
 
-void FTPServer::start_file_download(int client_socket, size_t client_index, const std::string& path) {
-  int data_socket = open_data_connection(client_socket, client_index);
+void FTPServer::start_file_download(int client_socket, const std::string& path) {
+  int data_socket = open_data_connection(client_socket);
   if (data_socket < 0) {
-    send_response(client_socket, client_index, 425, "Can't open data connection");
+    send_response(client_socket, 425, "Can't open data connection");
     return;
   }
 
@@ -984,27 +830,20 @@ void FTPServer::start_file_download(int client_socket, size_t client_index, cons
   if (file_fd < 0) {
     close(data_socket);
     close_data_connection(client_socket);
-    send_response(client_socket, client_index, 550, "Failed to open file for reading");
+    send_response(client_socket, 550, "Failed to open file for reading");
     return;
   }
 
   char buffer[2048];
   int len;
-  
   while ((len = read(file_fd, buffer, sizeof(buffer))) > 0) {
-    if (data_tls_context_ != nullptr) {
-      // Write to TLS data connection
-      esp_tls_conn_write(data_tls_context_, buffer, len);
-    } else {
-      // Write to plain data socket
-      send(data_socket, buffer, len, 0);
-    }
+    send(data_socket, buffer, len, 0);
   }
 
   close(file_fd);
   close(data_socket);
   close_data_connection(client_socket);
-  send_response(client_socket, client_index, 226, "Transfer complete");
+  send_response(client_socket, 226, "Transfer complete");
 }
 
 bool FTPServer::is_running() const {
@@ -1013,3 +852,4 @@ bool FTPServer::is_running() const {
 
 }  // namespace ftp_server
 }  // namespace esphome
+
