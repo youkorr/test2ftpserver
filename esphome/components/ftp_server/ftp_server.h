@@ -42,15 +42,14 @@ class FTPServer : public Component {
 
  protected:
   void handle_new_clients();
-  void handle_ftp_client(int client_socket, size_t client_index);
-  void process_command(int client_socket, size_t client_index, const std::string& command);
-  void send_response(int client_socket, size_t client_index, int code, const std::string& message);
+  void handle_ftp_client(int client_socket);
+  void process_command(int client_socket, const std::string& command);
+  void send_response(int client_socket, int code, const std::string& message);
   bool authenticate(const std::string& username, const std::string& password);
-  void list_directory(int client_socket, size_t client_index, const std::string& path);
-  void list_names(int client_socket, size_t client_index, const std::string& path);
-  void start_file_upload(int client_socket, size_t client_index, const std::string& path);
-  void start_file_download(int client_socket, size_t client_index, const std::string& path);
-  void close_client_connection(size_t client_index);
+  void list_directory(int client_socket, const std::string& path);
+  void list_names(int client_socket, const std::string& path);
+  void start_file_upload(int client_socket, const std::string& path);
+  void start_file_download(int client_socket, const std::string& path);
 
   uint16_t port_{21};
   std::string username_{"admin"};
@@ -62,31 +61,28 @@ class FTPServer : public Component {
   std::vector<FTPClientState> client_states_;
   std::vector<std::string> client_usernames_;
   std::vector<std::string> client_current_paths_;
-  std::vector<esp_tls_t*> client_tls_contexts_;
-  std::vector<bool> client_secure_data_;
+
+  // Variables pour TLS
+  bool enable_tls_{false};
+  std::string external_ip_;
+  int passive_port_min_{0};
+  int passive_port_max_{0};
 
   // Variables pour le mode passif
   bool passive_mode_enabled_ = false;
   int passive_data_socket_ = -1;
   int passive_data_port_ = -1;
   std::string passive_client_ip_;
-  
-  // Variables pour TLS
-  bool enable_tls_{false};
-  std::string external_ip_;
-  int passive_port_min_{0};
-  int passive_port_max_{0};
-  esp_tls_t* data_tls_context_{nullptr};
-  esp_tls_cfg_t tls_cfg_;
-  
-  // Variables pour la commande RNFR
+
+  // Variable pour la commande RNFR
   std::string rename_from_;
 
   // Méthodes pour le mode passif
-  bool start_passive_mode(int client_socket, size_t client_index);
-  int open_data_connection(int client_socket, size_t client_index);
+  bool start_passive_mode(int client_socket);
+  int open_data_connection(int client_socket);
   void close_data_connection(int client_socket);
 };
 
 }  // namespace ftp_server
 }  // namespace esphome
+
