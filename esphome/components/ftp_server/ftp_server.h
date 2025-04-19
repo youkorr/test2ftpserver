@@ -1,0 +1,92 @@
+#pragma once
+
+#include "esphome/core/component.h"
+#include <string>
+#include <vector>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include "esp_tls.h"
+
+namespace esphome {
+namespace ftp_server {
+
+enum FTPClientState {
+  FTP_WAIT_LOGIN,
+  FTP_LOGGED_IN
+};
+
+class FTPServer : public Component {
+ public:
+  FTPServer();
+  void setup() override;
+  void loop() override;
+  void dump_config() override;
+
+  // Définir une priorité d'initialisation tardive pour ESP-IDF
+  float get_setup_priority() const override { return setup_priority::LATE - 1; }
+
+  void set_port(uint16_t port) { port_ = port; }
+  void set_username(const std::string &username) { username_ = username; }
+  void set_password(const std::string &password) { password_ = password; }
+  void set_root_path(const std::string &root_path) { root_path_ = root_path; }
+  void set_enable_tls(bool enable) { enable_tls_ = enable; }
+  void set_external_ip(const std::string& ip) { external_ip_ = ip; }
+  void set_passive_port_range(int min_port, int max_port) { 
+    passive_port_min_ = min_port; 
+    passive_port_max_ = max_port; 
+  }
+
+  // Méthode pour vérifier si le serveur est en cours d'exécution
+  bool is_running() const;
+
+ protected:
+  void handle_new_clients();
+  void handle_ftp_client(int client_socket, size_t client_index);
+  void process_command(int client_socket, size_t client_index, const std::string& command);
+  void send_response(int client_socket, size_t client_index, int code, const std::string& message);
+  bool authenticate(const std::string& username, const std::string& password);
+  void list_directory(int client_socket, size_t client_index, const std::string& path);
+  void list_names(int client_socket, size_t client_index, const std::string& path);
+  void start_file_upload(int client_socket, size_t client_index, const std::string& path);
+  void start_file_download(int client_socket, size_t client_index, const std::string& path);
+  void close_client_connection(size_t client_index);
+
+  uint16_t port_{21};
+  std::string username_{"admin"};
+  std::string password_{"admin"};
+  std::string root_path_{"/"};
+  std::string current_path_;
+  int ftp_server_socket_{-1};
+  std::vector<int> client_sockets_;
+  std::vector<FTPClientState> client_states_;
+  std::vector<std::string> client_usernames_;
+  std::vector<std::string> client_current_paths_;
+  std::vector<esp_tls_t*> client_tls_contexts_;
+  std::vector<bool> client_secure_data_;
+
+  // Variables pour le mode passif
+  bool passive_mode_enabled_ = false;
+  int passive_data_socket_ = -1;
+  int passive_data_port_ = -1;
+  std::string passive_client_ip_;
+  
+  // Variables pour TLS
+  bool enable_tls_{false};
+  std::string external_ip_;
+  int passive_port_min_{0};
+  int passive_port_max_{0};
+  esp_tls_t* data_tls_context_{nullptr};
+  esp_tls_cfg_t tls_cfg_;
+  
+  // Variables pour la commande RNFR
+  std::string rename_from_;
+
+  // Méthodes pour le mode passif
+  bool start_passive_mode(int client_socket, size_t client_index);
+  int open_data_connection(int client_socket, size_t client_index);
+  void close_data_connection(int client_socket);
+};
+
+}  // namespace ftp_server
+}  // namespace esphome
