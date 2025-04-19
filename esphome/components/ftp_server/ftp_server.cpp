@@ -11,7 +11,6 @@
 #include "esp_err.h"
 #include <errno.h>
 #include "esp_tls.h"
-#include "esp_tls_error_capture.h"
 #include "mbedtls/base64.h"
 
 namespace esphome {
